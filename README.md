@@ -2,9 +2,8 @@
 
 QuantPulse is a premium, high-performance NSE (National Stock Exchange) stock market analytics dashboard and API. It provides real-time data visualization, historical performance metrics, and predictive trends using machine learning.
 
-<video src="assets/quantpulse_demo.mp4" width="100%" controls autoplay loop muted></video>
+![QuantPulse Live Demo](assets/quantpulse_demo.webp)
 
-![QuantPulse Dashboard](assets/quantpulse_mockup.png)
 
 ## ✨ Features
 
