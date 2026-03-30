@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantPulse | NSE Analytics Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --panel-bg: rgba(30, 41, 59, 0.7);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent: #38bdf8;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            display: grid;
+            grid-template-columns: 280px 1fr 320px;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar Styling */
+        #sidebar {
+            background: var(--panel-bg);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            backdrop-filter: blur(10px);
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            font-size: 1.25rem;
+            font-weight: 700;
+            border-bottom: 1px solid var(--border);
+            color: var(--accent);
+        }
+
+        .company-item {
+            padding: 15px 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .company-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .company-item.active {
+            background: rgba(56, 189, 248, 0.1);
+            border-left: 4px solid var(--accent);
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-up { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+        .badge-down { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+
+        /* Main Area */
+        #main-content {
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .stock-title h1 { margin: 0; font-size: 2rem; }
+        .stock-title p { margin: 5px 0 0; color: var(--text-secondary); }
+
+        .time-filters {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        button:hover { background: rgba(255,255,255,0.1); }
+        button.active { background: var(--accent); border-color: var(--accent); }
+
+        .chart-container {
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            flex-grow: 1;
+            min-height: 400px;
+        }
+
+        /* Right Panel */
+        #right-panel {
+            background: var(--panel-bg);
+            border-left: 1px solid var(--border);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            overflow-y: auto;
+        }
+
+        .card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            padding: 20px;
+            border-radius: 12px;
+        }
+
+        .card-title {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .stat-val { font-size: 1.1rem; font-weight: 600; margin-top: 4px; }
+        
+        .movers-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        .movers-table th { text-align: left; color: var(--text-secondary); padding: 8px 0; }
+        .movers-table td { padding: 8px 0; border-bottom: 1px solid var(--border); }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <div class="sidebar-header">QuantPulse</div>
+        <div id="company-list">
+            <!-- Populated by JS -->
+        </div>
+    </div>
+
+    <div id="main-content">
+        <div class="chart-header">
+            <div class="stock-title">
+                <h1 id="curr-name">Select a Stock</h1>
+                <p id="curr-sector">Sector: -</p>
+            </div>
+            <div class="time-filters">
+                <button onclick="updateChart(30, this)" class="active">30D</button>
+                <button onclick="updateChart(90, this)">90D</button>
+                <button onclick="updateChart(252, this)">1Y</button>
+            </div>
+        </div>
+        <div class="chart-container">
+            <canvas id="stockChart"></canvas>
+        </div>
+    </div>
+
+    <div id="right-panel">
+        <div class="card">
+            <div class="card-title">Performance Metrics</div>
+            <div class="stat-grid">
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 0.75rem;">52W High</div>
+                    <div class="stat-val" id="val-52h">₹0</div>
+                </div>
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 0.75rem;">52W Low</div>
+                    <div class="stat-val" id="val-52l">₹0</div>
+                </div>
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 0.75rem;">Volatility</div>
+                    <div class="stat-val" id="val-vol">0%</div>
+                </div>
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 0.75rem;">Avg Close</div>
+                    <div class="stat-val" id="val-avg">₹0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="flex-grow: 1;">
+            <div class="card-title">Top Movers</div>
+            <div style="margin-bottom: 10px; font-weight: 600; font-size: 0.8rem; color: var(--success);">Top Gainers</div>
+            <table class="movers-table" id="gainers-table">
+                <tbody></tbody>
+            </table>
+            
+            <div style="margin: 20px 0 10px; font-weight: 600; font-size: 0.8rem; color: var(--danger);">Top Losers</div>
+            <table class="movers-table" id="losers-table">
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = "http://localhost:8000";
+        let chart = null;
+        let selectedSymbol = null;
+        let currentLimit = 30;
+
+        async function init() {
+            await fetchCompanies();
+            await fetchMovers();
+        }
+
+        async function fetchCompanies() {
+            try {
+                const res = await fetch(`${API_BASE}/companies`);
+                const companies = await res.json();
+                const list = document.getElementById('company-list');
+                
+                // Fetch daily returns for badges
+                const moversRes = await fetch(`${API_BASE}/gainers-losers`);
+                const movers = await moversRes.json();
+                const returnMap = {};
+                if (movers.gainers) {
+                    [...movers.gainers, ...movers.losers].forEach(m => {
+                        returnMap[m.symbol] = m.daily_return;
+                    });
+                }
+
+                companies.forEach(c => {
+                    const div = document.createElement('div');
+                    div.className = 'company-item';
+                    div.id = `item-${c.symbol}`;
+                    const ret = ((returnMap[c.symbol] || 0) * 100).toFixed(2);
+                    const badgeClass = ret >= 0 ? 'badge-up' : 'badge-down';
+                    
+                    div.innerHTML = `
+                        <div>
+                            <div style="font-weight: 600;">${c.symbol.replace('.NS', '')}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-secondary);">${c.name}</div>
+                        </div>
+                        <div class="badge ${badgeClass}">${ret > 0 ? '+' : ''}${ret}%</div>
+                    `;
+                    div.onclick = () => selectStock(c);
+                    list.appendChild(div);
+                });
+
+                if (companies.length > 0) selectStock(companies[0]);
+            } catch (e) { console.error("Error fetching companies:", e); }
+        }
+
+        async function selectStock(company) {
+            if (selectedSymbol) {
+                const prev = document.getElementById(`item-${selectedSymbol}`);
+                if (prev) prev.classList.remove('active');
+            }
+            selectedSymbol = company.symbol;
+            document.getElementById(`item-${selectedSymbol}`).classList.add('active');
+            document.getElementById('curr-name').textContent = company.name;
+            document.getElementById('curr-sector').textContent = `Sector: ${company.sector}`;
+            
+            await updateSummary();
+            await updateChart(currentLimit);
+        }
+
+        async function updateSummary() {
+            const res = await fetch(`${API_BASE}/summary/${selectedSymbol}`);
+            const data = await res.json();
+            document.getElementById('val-52h').textContent = `₹${data.week52_high.toFixed(2)}`;
+            document.getElementById('val-52l').textContent = `₹${data.week52_low.toFixed(2)}`;
+            document.getElementById('val-vol').textContent = `${data.volatility_score.toFixed(1)}%`;
+            document.getElementById('val-avg').textContent = `₹${data.avg_close.toFixed(2)}`;
+        }
+
+        async function updateChart(limit, btn) {
+            currentLimit = limit;
+            if (btn) {
+                document.querySelectorAll('.time-filters button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            }
+
+            // Fetch Real Data
+            const res = await fetch(`${API_BASE}/data/${selectedSymbol}?limit=${limit}`);
+            const rawData = await res.json();
+            const data = rawData.reverse(); 
+
+            // Fetch Prediction
+            const predRes = await fetch(`${API_BASE}/predict/${selectedSymbol}`);
+            const predData = await predRes.json();
+            
+            const ctx = document.getElementById('stockChart').getContext('2d');
+            
+            // Prepare Labels
+            const labels = data.map(d => d.Date);
+            const prices = data.map(d => d.Close);
+            
+            // Add Future Dates
+            const lastDate = new Date(labels[labels.length - 1]);
+            for (let i = 1; i <= 7; i++) {
+                const nextDate = new Date(lastDate);
+                nextDate.setDate(nextDate.getDate() + i);
+                labels.push(nextDate.toISOString().split('T')[0] + " (Pred)");
+            }
+
+            // Prepare Prediction Dataset
+            // It starts with 'null's for real dates, then the bridge point, then predictions
+            const predPrices = new Array(prices.length - 1).fill(null);
+            predPrices.push(prices[prices.length - 1]); // Bridge point
+            predPrices.push(...predData.predictions);
+
+            if (chart) chart.destroy();
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Closing Price',
+                            data: prices,
+                            borderColor: '#38bdf8',
+                            backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true,
+                            pointRadius: limit > 100 ? 0 : 3
+                        },
+                        {
+                            label: 'Trend estimate',
+                            data: predPrices,
+                            borderColor: '#a855f7',
+                            borderDash: [5, 5],
+                            borderWidth: 2,
+                            tension: 0.1,
+                            fill: false,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { display: true, labels: { color: '#94a3b8' } } 
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8', maxTicksLimit: 10 } },
+                        y: { 
+                            grid: { color: 'rgba(255,255,255,0.05)' }, 
+                            ticks: { 
+                                color: '#94a3b8',
+                                callback: function(value) { return '₹' + value; }
+                            } 
+                        }
+                    }
+                }
+            });
+        }
+
+        async function fetchMovers() {
+            try {
+                const res = await fetch(`${API_BASE}/gainers-losers`);
+                const data = await res.json();
+                
+                const renderTable = (id, list) => {
+                    const tbody = document.querySelector(`#${id} tbody`);
+                    tbody.innerHTML = '';
+                    if (!list) return;
+                    list.forEach(m => {
+                        const tr = document.createElement('tr');
+                        const ret = (m.daily_return * 100).toFixed(2);
+                        const color = ret >= 0 ? 'var(--success)' : 'var(--danger)';
+                        tr.innerHTML = `
+                            <td>${m.symbol.replace('.NS', '')}</td>
+                            <td style="text-align: right; font-weight: 600; color: ${color}">${ret > 0 ? '+' : ''}${ret}%</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                };
+
+                renderTable('gainers-table', data.gainers);
+                renderTable('losers-table', data.losers);
+            } catch (e) { console.error("Error fetching movers:", e); }
+        }
+
+        init();
+    </script>
+</body>
+</html>
