@@ -118,7 +118,31 @@
             padding: 20px;
             flex-grow: 1;
             min-height: 400px;
+            position: relative; /* For loader */
         }
+
+        #chart-loader {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            border-radius: 16px;
+            z-index: 10;
+            backdrop-filter: blur(4px);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--border);
+            border-top: 4px solid var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         /* Right Panel */
         #right-panel {
@@ -189,6 +213,7 @@
             </div>
         </div>
         <div class="chart-container">
+            <div id="chart-loader"><div class="spinner"></div></div>
             <canvas id="stockChart"></canvas>
         </div>
     </div>
@@ -303,88 +328,113 @@
         }
 
         async function updateChart(limit, btn) {
-            currentLimit = limit;
-            if (btn) {
-                document.querySelectorAll('.time-filters button').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-            }
-
-            // Fetch Real Data
-            const res = await fetch(`${API_BASE}/data/${selectedSymbol}?limit=${limit}`);
-            const rawData = await res.json();
-            const data = rawData.reverse(); 
-
-            // Fetch Prediction
-            const predRes = await fetch(`${API_BASE}/predict/${selectedSymbol}`);
-            const predData = await predRes.json();
+            if (!selectedSymbol) return;
+            const loader = document.getElementById('chart-loader');
+            loader.style.display = 'flex';
             
-            const ctx = document.getElementById('stockChart').getContext('2d');
-            
-            // Prepare Labels
-            const labels = data.map(d => d.Date);
-            const prices = data.map(d => d.Close);
-            
-            // Add Future Dates
-            const lastDate = new Date(labels[labels.length - 1]);
-            for (let i = 1; i <= 7; i++) {
-                const nextDate = new Date(lastDate);
-                nextDate.setDate(nextDate.getDate() + i);
-                labels.push(nextDate.toISOString().split('T')[0] + " (Pred)");
-            }
+            try {
+                currentLimit = limit;
+                if (btn) {
+                    document.querySelectorAll('.time-filters button').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                }
 
-            // Prepare Prediction Dataset
-            // It starts with 'null's for real dates, then the bridge point, then predictions
-            const predPrices = new Array(prices.length - 1).fill(null);
-            predPrices.push(prices[prices.length - 1]); // Bridge point
-            predPrices.push(...predData.predictions);
+                // Fetch Real Data
+                const res = await fetch(`${API_BASE}/data/${selectedSymbol}?limit=${limit}`);
+                if (!res.ok) throw new Error("Failed to fetch historical data");
+                const rawData = await res.json();
+                const data = [...rawData].reverse(); 
 
-            if (chart) chart.destroy();
-
-            chart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [
-                        {
-                            label: 'Closing Price',
-                            data: prices,
-                            borderColor: '#38bdf8',
-                            backgroundColor: 'rgba(56, 189, 248, 0.1)',
-                            borderWidth: 2,
-                            tension: 0.3,
-                            fill: true,
-                            pointRadius: limit > 100 ? 0 : 3
-                        },
-                        {
-                            label: 'Trend estimate',
-                            data: predPrices,
-                            borderColor: '#a855f7',
-                            borderDash: [5, 5],
-                            borderWidth: 2,
-                            tension: 0.1,
-                            fill: false,
-                            pointRadius: 0
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { 
-                        legend: { display: true, labels: { color: '#94a3b8' } } 
-                    },
-                    scales: {
-                        x: { grid: { display: false }, ticks: { color: '#94a3b8', maxTicksLimit: 10 } },
-                        y: { 
-                            grid: { color: 'rgba(255,255,255,0.05)' }, 
-                            ticks: { 
-                                color: '#94a3b8',
-                                callback: function(value) { return '₹' + value; }
-                            } 
-                        }
+                // Fetch Prediction (Optional)
+                let predData = { predictions: [] };
+                try {
+                    const predRes = await fetch(`${API_BASE}/predict/${selectedSymbol}`);
+                    if (predRes.ok) predData = await predRes.json();
+                } catch (e) { console.warn("Prediction failed:", e); }
+                
+                const canvas = document.getElementById('stockChart');
+                const ctx = canvas.getContext('2d');
+                
+                // Prepare Labels and Prices
+                const labels = data.map(d => d.Date);
+                const prices = data.map(d => d.Close);
+                
+                // Add Future Dates for predictions if available
+                if (predData.predictions.length > 0) {
+                    const lastDateStr = labels[labels.length - 1];
+                    const lastDate = new Date(lastDateStr);
+                    for (let i = 1; i <= 7; i++) {
+                        const nextDate = new Date(lastDate);
+                        nextDate.setDate(nextDate.getDate() + i);
+                        labels.push(nextDate.toISOString().split('T')[0] + " (Pred)");
                     }
                 }
-            });
+
+                // Prepare Prediction Dataset
+                const predPrices = new Array(prices.length - 1).fill(null);
+                predPrices.push(prices[prices.length - 1]); // Bridge point
+                predPrices.push(...predData.predictions);
+
+                if (chart) {
+                    chart.destroy();
+                    chart = null;
+                }
+                
+                // Final sanity check: ensure canvas is clear
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            {
+                                label: 'Closing Price',
+                                data: prices,
+                                borderColor: '#38bdf8',
+                                backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                                borderWidth: 2,
+                                tension: 0.3,
+                                fill: true,
+                                pointRadius: data.length > 100 ? 0 : 3
+                            },
+                            {
+                                label: 'Trend estimate',
+                                data: predPrices,
+                                borderColor: '#a855f7',
+                                borderDash: [5, 5],
+                                borderWidth: 2,
+                                tension: 0.1,
+                                fill: false,
+                                pointRadius: 0
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: { duration: 500 },
+                        plugins: { 
+                            legend: { display: true, labels: { color: '#94a3b8' } } 
+                        },
+                        scales: {
+                            x: { grid: { display: false }, ticks: { color: '#94a3b8', maxTicksLimit: 10 } },
+                            y: { 
+                                grid: { color: 'rgba(255,255,255,0.05)' }, 
+                                ticks: { 
+                                    color: '#94a3b8',
+                                    callback: function(value) { return '₹' + value; }
+                                } 
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error("Error updating chart:", e);
+                // Optionally show error to user
+            } finally {
+                loader.style.display = 'none';
+            }
         }
 
         async function fetchMovers() {

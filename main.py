@@ -43,16 +43,21 @@ async def get_companies():
 @app.get("/data/{symbol}")
 async def get_stock_data(symbol: str, limit: int = 30):
     """Returns the last N days of OHLCV + computed metrics for a given symbol."""
+    symbol = symbol.upper()
     if symbol not in COMPANY_MAP:
-        raise HTTPException(status_code=404, detail="Symbol not found in our NSE list.")
+        raise HTTPException(status_code=404, detail=f"Symbol {symbol} not found in our list.")
     
-    query = f"SELECT * FROM {TABLE_NAME} WHERE symbol = '{symbol}' ORDER BY Date DESC LIMIT {limit}"
-    df = pd.read_sql(query, engine)
-    
-    if df.empty:
-        raise HTTPException(status_code=404, detail="No data found for this symbol.")
-    
-    return df.to_dict(orient="records")
+    try:
+        query = f"SELECT * FROM {TABLE_NAME} WHERE symbol = '{symbol}' ORDER BY Date DESC LIMIT {limit}"
+        df = pd.read_sql(query, engine)
+        
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data found for this symbol.")
+        
+        return df.to_dict(orient="records")
+    except Exception as e:
+        print(f"Database error for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error while fetching stock data.")
 
 @app.get("/summary/{symbol}")
 async def get_stock_summary(symbol: str):
